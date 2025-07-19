@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Join Meeting</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      background: linear-gradient(135deg, #1f1c2c, #928dab);
+      color: white;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      padding: 20px;
+      text-align: center;
+    }
+
+    h2 {
+      font-size: 2rem;
+      margin-bottom: 20px;
+      text-shadow: 1px 1px 3px #00000080;
+    }
+
+    form {
+      background: rgba(255, 255, 255, 0.05);
+      padding: 30px 25px;
+      border-radius: 12px;
+      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+      backdrop-filter: blur(10px);
+      width: 100%;
+      max-width: 400px;
+    }
+
+    input {
+      width: 100%;
+      padding: 12px 15px;
+      margin: 12px 0;
+      border-radius: 8px;
+      border: none;
+      font-size: 16px;
+      background: #f0f0f0;
+      color: #000;
+    }
+
+    button {
+      width: 100%;
+      padding: 12px;
+      font-size: 17px;
+      background-color: #4CAF50;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: background-color 0.3s ease;
+    }
+
+    button:hover {
+      background-color: #45a049;
+    }
+
+    .back {
+      margin-top: 20px;
+      font-size: 15px;
+      color: #dddddd;
+    }
+
+    .back a {
+      color: #fff;
+      text-decoration: underline;
+    }
+
+    @media screen and (max-width: 600px) {
+      form {
+        padding: 25px 20px;
+      }
+
+      h2 {
+        font-size: 1.6rem;
+      }
+
+      input, button {
+        font-size: 15px;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <h2>Join a Meeting</h2>
+  <form action="/joinMeeting" method="POST">
+    <input type="text" name="username" placeholder="Enter your name" required />
+    <input type="text" name="roomId" placeholder="Enter Meeting ID" required />
+    <button type="submit">Join Meeting</button>
+  </form>
+
+  <div class="back">
+    <a href="/user">⬅ Back to Home</a>
+  </div>
+
+</body>
+</html>
