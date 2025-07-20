@@ -155,7 +155,7 @@
   <script>
     const socket = io();
     const roomId = "<%= roomId %>";
-    socket.emit('join', roomId);
+    socket.emit('join', roomId); // Emit join only after page loads
 
     const localVideo = document.getElementById('localVideo');
     const remoteVideo = document.getElementById('remoteVideo');
@@ -173,7 +173,7 @@
       .then(stream => {
         localVideo.srcObject = stream;
         localStream = stream;
-        createPeerConnection();
+        createPeerConnection(); // ✅ Ensure peer connection created after local media is ready
       })
       .catch(error => alert('Please allow camera and microphone access.'));
 
@@ -189,22 +189,32 @@
       };
 
       peerConnection.onicecandidate = event => {
-        if (event.candidate) {
-          socket.emit('ice-candidate', { to: remoteSocketId, candidate: event.candidate });
+        if (event.candidate && remoteSocketId) {
+          socket.emit('ice-candidate', {
+            to: remoteSocketId,
+            candidate: event.candidate
+          });
         }
       };
     }
 
+    // ✅ New user joins
     socket.on('user-joined', async id => {
       remoteSocketId = id;
+      if (!peerConnection) createPeerConnection();
+
       const offer = await peerConnection.createOffer();
       await peerConnection.setLocalDescription(offer);
       socket.emit('offer', { to: id, offer });
+
       joinSound.play();
     });
 
+    // ✅ Received offer from other user
     socket.on('offer', async ({ offer, from }) => {
       remoteSocketId = from;
+      if (!peerConnection) createPeerConnection();
+
       await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
       const answer = await peerConnection.createAnswer();
       await peerConnection.setLocalDescription(answer);
@@ -221,44 +231,18 @@
       }
     });
 
-    function toggleMic() {
-      const audioTrack = localStream.getAudioTracks()[0];
-      audioTrack.enabled = !audioTrack.enabled;
-    }
-
-    function toggleCamera() {
-      const videoTrack = localStream.getVideoTracks()[0];
-      videoTrack.enabled = !videoTrack.enabled;
-    }
-
-    function shareScreen() {
-      navigator.mediaDevices.getDisplayMedia({ video: true })
-        .then(screenStream => {
-          const screenTrack = screenStream.getVideoTracks()[0];
-          const sender = peerConnection.getSenders().find(s => s.track.kind === 'video');
-          sender.replaceTrack(screenTrack);
-
-          screenTrack.onended = () => {
-            sender.replaceTrack(localStream.getVideoTracks()[0]);
-          };
-        });
-    }
-
-    function copyLink() {
-      navigator.clipboard.writeText(window.location.href);
-      alert("Meeting URL copied!");
-    }
-
+    // ✅ Chat functions
     function sendMessage() {
       const input = document.getElementById("chatInput");
       const msg = input.value;
       if (!msg) return;
-      socket.emit("chat", msg);
+
+      socket.emit("chat", { roomId, msg }); // scoped to room
       appendMessage("You: " + msg);
       input.value = "";
     }
 
-    socket.on("chat", msg => {
+    socket.on("chat", ({ msg }) => {
       appendMessage("User: " + msg);
     });
 
@@ -267,6 +251,6 @@
       div.textContent = msg;
       document.getElementById("chatMessages").appendChild(div);
     }
-  </script>
+</script>
 </body>
 </html>
