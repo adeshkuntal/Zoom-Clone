@@ -33,42 +33,56 @@ app.get("/", (req, res) => {
   res.redirect("/register");
 });
 
+// ✅ Route to serve meeting room
+app.get("/room/:roomId", (req, res) => {
+  const roomId = req.params.roomId;
+  res.render("room", { roomId });
+});
 
-// ✅✅ FIXED Socket.IO handling
+// ✅ Socket.IO logic for WebRTC and room joining
 io.on("connection", (socket) => {
-  console.log("✅ Socket connected:", socket.id);
+  console.log("User connected:", socket.id);
 
-  socket.on("join-room", (roomId, userId) => {
-    console.log(`📥 ${userId} joined room ${roomId}`);
+  socket.on("join", (roomId) => {
+    console.log(`User ${socket.id} joined room ${roomId}`);
     socket.join(roomId);
 
-    // Notify others in the room
-    socket.to(roomId).emit("user-connected", userId);
+    // Notify existing users in room
+    socket.to(roomId).emit("user-joined", socket.id);
 
-    // Offer relay
-    socket.on("offer", ({ offer, to }) => {
-      socket.to(to).emit("offer", { offer, from: socket.id });
+    // Forward offer
+    socket.on("offer", (data) => {
+      socket.to(data.to).emit("offer", {
+        offer: data.offer,
+        from: socket.id,
+      });
     });
 
-    // Answer relay
-    socket.on("answer", ({ answer, to }) => {
-      socket.to(to).emit("answer", { answer, from: socket.id });
+    // Forward answer
+    socket.on("answer", (data) => {
+      socket.to(data.to).emit("answer", {
+        answer: data.answer,
+        from: socket.id,
+      });
     });
 
-    // ICE candidate relay
-    socket.on("ice-candidate", ({ candidate, to }) => {
-      socket.to(to).emit("ice-candidate", { candidate, from: socket.id });
+    // Forward ICE candidates
+    socket.on("ice-candidate", (data) => {
+      socket.to(data.to).emit("ice-candidate", {
+        candidate: data.candidate,
+        from: socket.id,
+      });
     });
 
-    // Chat relay
+    //Handle Chat
     socket.on("chat", ({ roomId, msg }) => {
-      socket.to(roomId).emit("chat", { msg });
+    socket.to(roomId).emit("chat", { msg });
     });
 
-    // Disconnect
+
+    // Handle disconnection
     socket.on("disconnect", () => {
-      console.log(`❌ ${userId} left`);
-      socket.to(roomId).emit("user-disconnected", userId);
+      socket.to(roomId).emit("user-left", socket.id);
     });
   });
 });
@@ -76,5 +90,5 @@ io.on("connection", (socket) => {
 // Start the server
 const PORT = process.env.PORT || 4000;
 server.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
+  console.log(`Server running on port ${PORT}`);
 });
