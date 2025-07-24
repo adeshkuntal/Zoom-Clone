@@ -44,8 +44,15 @@ exports.renderMeeting = (req, res) => {
     username = req.cookies.username;
   }
   const roomId = req.params.roomId;
+  if (!roomId) {
+    return res.redirect("/joinMeeting"); // Safe fallback if roomId is missing
+  }
+  if (!username || username.trim() === "") {
+    return res.redirect("/joinMeeting"); // Force re-enter username
+  }
   res.render("meeting", { username, roomId });
 };
+
 
 
 exports.renderJoin = (req,res) => {
