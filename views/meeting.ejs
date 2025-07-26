@@ -165,6 +165,7 @@
     let localStream;
     let peerConnection;
     let remoteSocketId;
+    let isCaller = false;
 
     const config = {
       iceServers: [
@@ -185,6 +186,9 @@
         
         // Join room after media is ready
         socket.emit('join', roomId);
+        
+        // Create peer connection immediately
+        createPeerConnection();
       } catch (error) {
         console.error('Media access error:', error);
         alert('Please allow camera and microphone access.');
@@ -192,47 +196,84 @@
     }
 
     function createPeerConnection() {
+      console.log('Creating new peer connection');
       peerConnection = new RTCPeerConnection(config);
 
       // Add local stream tracks
       localStream.getTracks().forEach(track => {
         peerConnection.addTrack(track, localStream);
+        console.log('Added local track:', track.kind);
       });
 
       // Remote stream handler
       peerConnection.ontrack = event => {
+        console.log('Received remote track:', event.track.kind);
         if (!remoteVideo.srcObject) {
-          remoteVideo.srcObject = event.streams[0];
+          remoteVideo.srcObject = new MediaStream();
         }
+        remoteVideo.srcObject.addTrack(event.track);
       };
 
       // ICE candidate handler
       peerConnection.onicecandidate = event => {
-        if (event.candidate && remoteSocketId) {
+        if (event.candidate) {
+          console.log('Sending ICE candidate to', remoteSocketId);
           socket.emit('ice-candidate', {
             to: remoteSocketId,
             candidate: event.candidate
           });
+        } else {
+          console.log('All ICE candidates have been sent');
         }
       };
 
       // ICE connection state change handler
       peerConnection.oniceconnectionstatechange = () => {
         console.log('ICE connection state:', peerConnection.iceConnectionState);
+        if (peerConnection.iceConnectionState === 'failed' ||
+            peerConnection.iceConnectionState === 'disconnected') {
+          restartIce();
+        }
       };
+
+      peerConnection.onnegotiationneeded = async () => {
+        console.log('Negotiation needed');
+        if (isCaller) {
+          try {
+            const offer = await peerConnection.createOffer();
+            await peerConnection.setLocalDescription(offer);
+            socket.emit('offer', { to: remoteSocketId, offer });
+          } catch (err) {
+            console.error('Error creating offer:', err);
+          }
+        }
+      };
+    }
+
+    function restartIce() {
+      console.log('Restarting ICE...');
+      if (peerConnection) {
+        peerConnection.restartIce();
+      }
     }
 
     // Socket event handlers
     socket.on('user-joined', async id => {
       console.log('User joined:', id);
-      remoteSocketId = id;
-      
-      if (!peerConnection) {
-        createPeerConnection();
+      if (remoteSocketId) {
+        console.log('Already in call with', remoteSocketId);
+        return;
       }
-
+      
+      remoteSocketId = id;
+      isCaller = true;
+      
       try {
-        const offer = await peerConnection.createOffer();
+        console.log('Creating offer as caller');
+        const offer = await peerConnection.createOffer({
+          offerToReceiveAudio: true,
+          offerToReceiveVideo: true
+        });
         await peerConnection.setLocalDescription(offer);
         socket.emit('offer', { to: id, offer });
         joinSound.play();
@@ -242,15 +283,23 @@
     });
 
     socket.on('offer', async ({ offer, from }) => {
-      remoteSocketId = from;
-      
-      if (!peerConnection) {
-        createPeerConnection();
+      console.log('Received offer from', from);
+      if (remoteSocketId && remoteSocketId !== from) {
+        console.log('Already in call with another peer');
+        return;
       }
-
+      
+      remoteSocketId = from;
+      isCaller = false;
+      
       try {
         await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
-        const answer = await peerConnection.createAnswer();
+        console.log('Remote description set');
+        
+        const answer = await peerConnection.createAnswer({
+          offerToReceiveAudio: true,
+          offerToReceiveVideo: true
+        });
         await peerConnection.setLocalDescription(answer);
         socket.emit('answer', { to: from, answer });
       } catch (error) {
@@ -259,9 +308,11 @@
     });
 
     socket.on('answer', async ({ answer }) => {
+      console.log('Received answer');
       try {
         if (peerConnection.signalingState !== 'stable') {
           await peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
+          console.log('Answer applied successfully');
         }
       } catch (error) {
         console.error('Answer application error:', error);
@@ -271,6 +322,7 @@
     socket.on('ice-candidate', async ({ candidate }) => {
       try {
         if (candidate && peerConnection.remoteDescription) {
+          console.log('Adding ICE candidate');
           await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
         }
       } catch (error) {
@@ -286,6 +338,7 @@
           remoteVideo.srcObject = null;
         }
         remoteSocketId = null;
+        isCaller = false;
       }
     });
 
