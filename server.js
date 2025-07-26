@@ -33,27 +33,19 @@ app.get("/", (req, res) => {
   res.redirect("/register");
 });
 
-// ✅ Route to serve meeting room
-app.get("/room/:roomId", (req, res) => {
-  const roomId = req.params.roomId;
-  res.render("room", { roomId });
-});
-
-// ✅ Socket.IO logic for WebRTC and room joining
+// Socket.IO logic for WebRTC and room joining
 io.on("connection", (socket) => {
   console.log("User connected:", socket.id);
 
   socket.on("join", ({ roomId, username }) => {
     console.log(`User ${socket.id} (${username}) joined room ${roomId}`);
     socket.join(roomId);
-
-    // Store username with socket
     socket.username = username || `User-${socket.id.substring(0, 5)}`;
 
-    // Notify existing users in room with username
+    // Notify existing users in room
     socket.to(roomId).emit("user-joined", { 
-      id: socket.id, 
-      username: socket.username 
+      id: socket.id,
+      username: socket.username
     });
 
     // Get current participants count
@@ -61,43 +53,41 @@ io.on("connection", (socket) => {
     const participantCount = room ? room.size : 0;
     console.log(`Room ${roomId} now has ${participantCount} participants`);
 
-    // Clean up on disconnect
+    // WebRTC signaling events scoped to this room
+    socket.on("offer", (data) => {
+      socket.to(data.to).emit("offer", {
+        offer: data.offer,
+        from: socket.id,
+        username: socket.username
+      });
+    });
+
+    socket.on("answer", (data) => {
+      socket.to(data.to).emit("answer", {
+        answer: data.answer,
+        from: socket.id,
+        username: socket.username
+      });
+    });
+
+    socket.on("ice-candidate", (data) => {
+      socket.to(data.to).emit("ice-candidate", {
+        candidate: data.candidate,
+        from: socket.id
+      });
+    });
+
+    // Handle disconnection
     socket.on("disconnect", () => {
-      console.log(`User ${socket.id} (${socket.username}) disconnected from room ${roomId}`);
+      console.log(`User ${socket.id} disconnected`);
       socket.to(roomId).emit("user-left", socket.id);
     });
   });
 
-  // Forward offer with username
-  socket.on("offer", (data) => {
-    socket.to(data.to).emit("offer", {
-      offer: data.offer,
-      from: socket.id,
-      username: socket.username
-    });
-  });
-
-  // Forward answer with username
-  socket.on("answer", (data) => {
-    socket.to(data.to).emit("answer", {
-      answer: data.answer,
-      from: socket.id,
-      username: socket.username
-    });
-  });
-
-  // Forward ICE candidates
-  socket.on("ice-candidate", (data) => {
-    socket.to(data.to).emit("ice-candidate", {
-      candidate: data.candidate,
-      from: socket.id
-    });
-  });
-
-  // Handle chat messages
+  // Chat messages (global to all rooms)
   socket.on("chat", ({ roomId, msg }) => {
     socket.to(roomId).emit("chat", { 
-      msg, 
+      msg,
       from: socket.id,
       username: socket.username
     });
