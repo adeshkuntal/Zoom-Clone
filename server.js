@@ -33,11 +33,6 @@ app.get("/", (req, res) => {
   res.redirect("/register");
 });
 
-// ✅ Route to serve meeting room
-app.get("/room/:roomId", (req, res) => {
-  const roomId = req.params.roomId;
-  res.render("room", { roomId });
-});
 
 // ✅ Socket.IO logic for WebRTC and room joining
 io.on("connection", (socket) => {
@@ -50,40 +45,42 @@ io.on("connection", (socket) => {
     // Notify existing users in room
     socket.to(roomId).emit("user-joined", socket.id);
 
-    // Forward offer
-    socket.on("offer", (data) => {
-      socket.to(data.to).emit("offer", {
-        offer: data.offer,
-        from: socket.id,
-      });
-    });
+    // Get current participants count
+    const room = io.sockets.adapter.rooms.get(roomId);
+    const participantCount = room ? room.size : 0;
+    console.log(`Room ${roomId} now has ${participantCount} participants`);
 
-    // Forward answer
-    socket.on("answer", (data) => {
-      socket.to(data.to).emit("answer", {
-        answer: data.answer,
-        from: socket.id,
-      });
-    });
-
-    // Forward ICE candidates
-    socket.on("ice-candidate", (data) => {
-      socket.to(data.to).emit("ice-candidate", {
-        candidate: data.candidate,
-        from: socket.id,
-      });
-    });
-
-    //Handle Chat
-    socket.on("chat", ({ roomId, msg }) => {
-    socket.to(roomId).emit("chat", { msg });
-    });
-
-
-    // Handle disconnection
+    // Clean up on disconnect
     socket.on("disconnect", () => {
+      console.log(`User ${socket.id} disconnected from room ${roomId}`);
       socket.to(roomId).emit("user-left", socket.id);
     });
+  });
+
+  // These should be outside the 'join' handler to avoid multiple registrations
+  socket.on("offer", (data) => {
+    socket.to(data.to).emit("offer", {
+      offer: data.offer,
+      from: socket.id,
+    });
+  });
+
+  socket.on("answer", (data) => {
+    socket.to(data.to).emit("answer", {
+      answer: data.answer,
+      from: socket.id,
+    });
+  });
+
+  socket.on("ice-candidate", (data) => {
+    socket.to(data.to).emit("ice-candidate", {
+      candidate: data.candidate,
+      from: socket.id,
+    });
+  });
+
+  socket.on("chat", ({ roomId, msg }) => {
+    socket.to(roomId).emit("chat", { msg, from: socket.id });
   });
 });
 
