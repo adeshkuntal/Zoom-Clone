@@ -33,17 +33,28 @@ app.get("/", (req, res) => {
   res.redirect("/register");
 });
 
+// ✅ Route to serve meeting room
+app.get("/room/:roomId", (req, res) => {
+  const roomId = req.params.roomId;
+  res.render("room", { roomId });
+});
 
 // ✅ Socket.IO logic for WebRTC and room joining
 io.on("connection", (socket) => {
   console.log("User connected:", socket.id);
 
-  socket.on("join", (roomId) => {
-    console.log(`User ${socket.id} joined room ${roomId}`);
+  socket.on("join", ({ roomId, username }) => {
+    console.log(`User ${socket.id} (${username}) joined room ${roomId}`);
     socket.join(roomId);
 
-    // Notify existing users in room
-    socket.to(roomId).emit("user-joined", socket.id);
+    // Store username with socket
+    socket.username = username || `User-${socket.id.substring(0, 5)}`;
+
+    // Notify existing users in room with username
+    socket.to(roomId).emit("user-joined", { 
+      id: socket.id, 
+      username: socket.username 
+    });
 
     // Get current participants count
     const room = io.sockets.adapter.rooms.get(roomId);
@@ -52,35 +63,44 @@ io.on("connection", (socket) => {
 
     // Clean up on disconnect
     socket.on("disconnect", () => {
-      console.log(`User ${socket.id} disconnected from room ${roomId}`);
+      console.log(`User ${socket.id} (${socket.username}) disconnected from room ${roomId}`);
       socket.to(roomId).emit("user-left", socket.id);
     });
   });
 
-  // These should be outside the 'join' handler to avoid multiple registrations
+  // Forward offer with username
   socket.on("offer", (data) => {
     socket.to(data.to).emit("offer", {
       offer: data.offer,
       from: socket.id,
+      username: socket.username
     });
   });
 
+  // Forward answer with username
   socket.on("answer", (data) => {
     socket.to(data.to).emit("answer", {
       answer: data.answer,
       from: socket.id,
+      username: socket.username
     });
   });
 
+  // Forward ICE candidates
   socket.on("ice-candidate", (data) => {
     socket.to(data.to).emit("ice-candidate", {
       candidate: data.candidate,
-      from: socket.id,
+      from: socket.id
     });
   });
 
+  // Handle chat messages
   socket.on("chat", ({ roomId, msg }) => {
-    socket.to(roomId).emit("chat", { msg, from: socket.id });
+    socket.to(roomId).emit("chat", { 
+      msg, 
+      from: socket.id,
+      username: socket.username
+    });
   });
 });
 

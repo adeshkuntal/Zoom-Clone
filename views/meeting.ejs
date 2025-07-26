@@ -16,25 +16,37 @@
       justify-content: center;
     }
 
+    .video-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+      gap: 20px;
+      width: 100%;
+      max-width: 1200px;
+    }
+
     .video-container {
       position: relative;
-      width: 45%;
+      background: #1f1f1f;
+      border-radius: 10px;
+      overflow: hidden;
+      aspect-ratio: 16/9; /* Uniform aspect ratio */
     }
 
     video {
       width: 100%;
-      border-radius: 10px;
-      border: 2px solid #333;
+      height: 100%;
+      object-fit: cover; /* Ensure video fills container */
     }
 
     .username-label {
       position: absolute;
       bottom: 10px;
-      right: 10px;
+      left: 10px;
       background: rgba(0, 0, 0, 0.6);
       padding: 5px 10px;
       border-radius: 5px;
       font-size: 14px;
+      z-index: 10;
     }
 
     .controls {
@@ -115,20 +127,31 @@
     }
 
     @media (max-width: 768px) {
+      .video-grid {
+        grid-template-columns: 1fr;
+      }
+      
       .video-container {
-        width: 100%;
+        aspect-ratio: 4/3;
+      }
+      
+      .chat-box {
+        width: 200px;
+        right: 10px;
       }
     }
   </style>
 </head>
 <body>
-  <div class="video-container">
-    <video id="localVideo" autoplay muted></video>
-    <div class="username-label"><%= username %> (You)</div>
-  </div>
-  <div class="video-container">
-    <video id="remoteVideo" autoplay></video>
-    <div class="username-label">Participant</div>
+  <div class="video-grid">
+    <div class="video-container">
+      <video id="localVideo" autoplay muted></video>
+      <div class="username-label" id="localUsername"><%= username %> (You)</div>
+    </div>
+    <div class="video-container">
+      <video id="remoteVideo" autoplay></video>
+      <div class="username-label" id="remoteUsername">Connecting...</div>
+    </div>
   </div>
 
   <div class="controls">
@@ -161,10 +184,13 @@
     const remoteVideo = document.getElementById('remoteVideo');
     const joinSound = document.getElementById('joinSound');
     const chatMessages = document.getElementById('chatMessages');
+    const localUsernameLabel = document.getElementById('localUsername');
+    const remoteUsernameLabel = document.getElementById('remoteUsername');
 
     let localStream;
     let peerConnection;
     let remoteSocketId;
+    let remoteUsername = "Participant";
     let isCaller = false;
 
     const config = {
@@ -184,8 +210,11 @@
         });
         localVideo.srcObject = localStream;
         
+        // Set local username
+        localUsernameLabel.textContent = `${username} (You)`;
+        
         // Join room after media is ready
-        socket.emit('join', roomId);
+        socket.emit('join', { roomId, username });
         
         // Create peer connection immediately
         createPeerConnection();
@@ -212,6 +241,7 @@
           remoteVideo.srcObject = new MediaStream();
         }
         remoteVideo.srcObject.addTrack(event.track);
+        remoteUsernameLabel.textContent = remoteUsername;
       };
 
       // ICE candidate handler
@@ -222,50 +252,28 @@
             to: remoteSocketId,
             candidate: event.candidate
           });
-        } else {
-          console.log('All ICE candidates have been sent');
         }
       };
 
       // ICE connection state change handler
       peerConnection.oniceconnectionstatechange = () => {
         console.log('ICE connection state:', peerConnection.iceConnectionState);
-        if (peerConnection.iceConnectionState === 'failed' ||
-            peerConnection.iceConnectionState === 'disconnected') {
-          restartIce();
+        if (peerConnection.iceConnectionState === 'connected') {
+          remoteUsernameLabel.textContent = remoteUsername;
         }
       };
-
-      peerConnection.onnegotiationneeded = async () => {
-        console.log('Negotiation needed');
-        if (isCaller) {
-          try {
-            const offer = await peerConnection.createOffer();
-            await peerConnection.setLocalDescription(offer);
-            socket.emit('offer', { to: remoteSocketId, offer });
-          } catch (err) {
-            console.error('Error creating offer:', err);
-          }
-        }
-      };
-    }
-
-    function restartIce() {
-      console.log('Restarting ICE...');
-      if (peerConnection) {
-        peerConnection.restartIce();
-      }
     }
 
     // Socket event handlers
-    socket.on('user-joined', async id => {
-      console.log('User joined:', id);
+    socket.on('user-joined', async ({ id, username: remoteName }) => {
+      console.log('User joined:', id, 'with name:', remoteName);
       if (remoteSocketId) {
         console.log('Already in call with', remoteSocketId);
         return;
       }
       
       remoteSocketId = id;
+      remoteUsername = remoteName || "Participant";
       isCaller = true;
       
       try {
@@ -275,21 +283,26 @@
           offerToReceiveVideo: true
         });
         await peerConnection.setLocalDescription(offer);
-        socket.emit('offer', { to: id, offer });
+        socket.emit('offer', { 
+          to: id, 
+          offer,
+          username: username // Send our username with the offer
+        });
         joinSound.play();
       } catch (error) {
         console.error('Offer creation error:', error);
       }
     });
 
-    socket.on('offer', async ({ offer, from }) => {
-      console.log('Received offer from', from);
+    socket.on('offer', async ({ offer, from, username: remoteName }) => {
+      console.log('Received offer from', from, 'with name:', remoteName);
       if (remoteSocketId && remoteSocketId !== from) {
         console.log('Already in call with another peer');
         return;
       }
       
       remoteSocketId = from;
+      remoteUsername = remoteName || "Participant";
       isCaller = false;
       
       try {
@@ -301,18 +314,24 @@
           offerToReceiveVideo: true
         });
         await peerConnection.setLocalDescription(answer);
-        socket.emit('answer', { to: from, answer });
+        socket.emit('answer', { 
+          to: from, 
+          answer,
+          username: username // Send our username with the answer
+        });
       } catch (error) {
         console.error('Answer handling error:', error);
       }
     });
 
-    socket.on('answer', async ({ answer }) => {
-      console.log('Received answer');
+    socket.on('answer', async ({ answer, username: remoteName }) => {
+      console.log('Received answer from', remoteName);
+      remoteUsername = remoteName || "Participant";
       try {
         if (peerConnection.signalingState !== 'stable') {
           await peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
           console.log('Answer applied successfully');
+          remoteUsernameLabel.textContent = remoteUsername;
         }
       } catch (error) {
         console.error('Answer application error:', error);
@@ -339,12 +358,13 @@
         }
         remoteSocketId = null;
         isCaller = false;
+        remoteUsernameLabel.textContent = "Disconnected";
       }
     });
 
     // Chat functions
     socket.on('chat', ({ msg, from }) => {
-      const sender = from === socket.id ? 'You' : 'Participant';
+      const sender = from === socket.id ? 'You' : remoteUsername;
       appendMessage(`${sender}: ${msg}`);
     });
 
@@ -419,6 +439,6 @@
         .then(() => alert('Meeting link copied to clipboard!'))
         .catch(() => prompt('Copy this link:', meetingUrl));
     }
-</script>
+  </script>
 </body>
 </html>
